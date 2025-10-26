@@ -1,58 +1,95 @@
-import { CameraInfo } from '../types';
+import { CameraInfo, LensInfo } from '../types';
+import JSZip from 'jszip';
+import { getFileAsBase64 } from '../services/driveService';
 
-export const exportToCsv = (cameras: CameraInfo[], filename: string) => {
-  if (!cameras || cameras.length === 0) {
+const generateCamerasCsv = (cameras: CameraInfo[]): string => {
+  const headers = [
+    'id', 'brand', 'manufacturerUrl', 'model', 'year', 'serialNumber',
+    'cameraType', 'filmFormat', 'notableFeatures', 'notes', 'references',
+    'isArchived', 'attachedLensId'
+  ];
+  const formatHeader = (h: string) => h.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+  
+  const escape = (val: any) => {
+    const str = String(val ?? '');
+    if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+
+  const rows = cameras.map(camera =>
+    headers.map(header => {
+      if (header === 'references') {
+        return escape((camera.references || []).map(r => `${r.title}: ${r.url}`).join(' | '));
+      }
+      return escape(camera[header as keyof CameraInfo]);
+    }).join(',')
+  );
+
+  return [headers.map(formatHeader).join(','), ...rows].join('\r\n');
+};
+
+const generateLensesCsv = (lenses: LensInfo[]): string => {
+  const headers = [
+    'id', 'brand', 'model', 'serialNumber', 'focalLength', 'aperture', 'notes', 'isArchived'
+  ];
+  const formatHeader = (h: string) => h.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+
+  const escape = (val: any) => {
+    const str = String(val ?? '');
+    if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+
+  const rows = lenses.map(lens =>
+    headers.map(header => escape(lens[header as keyof LensInfo])).join(',')
+  );
+
+  return [headers.map(formatHeader).join(','), ...rows].join('\r\n');
+};
+
+
+export const exportToCsv = async (cameras: CameraInfo[], lenses: LensInfo[], filename: string) => {
+  if (cameras.length === 0 && lenses.length === 0) {
     return;
   }
 
-  // Define headers in the desired order
-  const headers: (keyof Omit<CameraInfo, 'images'> | 'references')[] = [
-    'brand',
-    'manufacturerUrl',
-    'model',
-    'year',
-    'serialNumber',
-    'cameraType',
-    'filmFormat',
-    'notableFeatures',
-    'notes',
-    'references'
-  ];
+  const zip = new JSZip();
   
-  // Function to format header titles
-  const formatHeader = (header: string) =>
-    header.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+  if (cameras.length > 0) {
+    zip.file('cameras.csv', generateCamerasCsv(cameras));
+  }
+  if (lenses.length > 0) {
+    zip.file('lenses.csv', generateLensesCsv(lenses));
+  }
 
-  // Helper to safely stringify and escape CSV values
-  const escapeValue = (value: any): string => {
-    const stringValue = value === null || value === undefined ? '' : String(value);
-    // If the value contains a comma, double quote, or newline, wrap it in double quotes.
-    // Also, escape any existing double quotes by doubling them up.
-    if (/[",\n\r]/.test(stringValue)) {
-      return `"${stringValue.replace(/"/g, '""')}"`;
-    }
-    return stringValue;
+  const imagesFolder = zip.folder('images');
+
+  const processImages = (items: (CameraInfo | LensInfo)[], prefix: string) => {
+    return items.flatMap((item, itemIndex) => {
+      const safeBrand = (item.brand || 'Unknown').replace(/[\s\W]/g, '_');
+      const safeModel = (item.model || 'Item').replace(/[\s\W]/g, '_');
+      
+      return item.images.map(async (fileId, imageIndex) => {
+          try {
+              const base64Image = await getFileAsBase64(fileId);
+              const imageName = `${prefix}_${String(itemIndex + 1).padStart(3, '0')}_${safeBrand}_${safeModel}_${imageIndex + 1}.jpeg`;
+              imagesFolder?.file(imageName, base64Image, { base64: true });
+          } catch (error) {
+              console.error(`Failed to fetch image with ID ${fileId} for export.`, error);
+          }
+      });
+    });
   };
 
-  const csvRows = [
-    headers.map(formatHeader).join(','), // Header row
-    ...cameras.map((camera) =>
-      headers.map((header) => {
-        if (header === 'references') {
-          const refs = camera.references || [];
-          const formattedRefs = refs.map(ref => `${ref.title}: ${ref.url}`).join(' | ');
-          return escapeValue(formattedRefs);
-        }
-        return escapeValue(camera[header as keyof Omit<CameraInfo, 'images'>]);
-      }).join(',')
-    ),
-  ];
-
-  const csvString = csvRows.join('\r\n');
-  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
+  const cameraImagePromises = processImages(cameras, 'camera');
+  const lensImagePromises = processImages(lenses, 'lens');
   
-  const url = URL.createObjectURL(blob);
+  await Promise.all([...cameraImagePromises, ...lensImagePromises]);
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(zipBlob);
   link.setAttribute('href', url);
   link.setAttribute('download', filename);
   link.style.visibility = 'hidden';

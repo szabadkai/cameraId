@@ -1,31 +1,93 @@
-import React from 'react';
-import { CameraInfo } from '../types';
-import { EditIcon } from './Icons';
+import React, { useState, useEffect } from 'react';
+import { CameraInfo, LensInfo } from '../types';
+import { EditIcon, TrashIcon, ArchiveIcon, UnarchiveIcon } from './Icons';
 import { formatUrl } from '../utils/url';
+import * as driveService from '../services/driveService';
 
 interface CameraCardProps {
   camera: CameraInfo;
+  lenses: LensInfo[];
   onEdit: () => void;
+  onDelete: () => void;
+  onToggleArchive: () => void;
 }
 
-const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit }) => {
+const ImageLoader: React.FC<{ fileId: string }> = ({ fileId }) => {
+    const [imageUrl, setImageUrl] = useState<string | null>(null);
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadImage = async () => {
+            try {
+                const url = await driveService.getImageBlobUrl(fileId);
+                if (isMounted) {
+                    setImageUrl(url);
+                }
+            } catch (err) {
+                console.error("Failed to load image from drive", err);
+                if (isMounted) {
+                    setError(true);
+                }
+            }
+        };
+
+        loadImage();
+
+        return () => {
+            isMounted = false;
+            if (imageUrl) {
+                URL.revokeObjectURL(imageUrl);
+            }
+        };
+    }, [fileId]);
+
+    if (error) {
+        return <div className="w-full h-48 bg-gray-800 flex items-center justify-center text-red-400 text-xs">Image failed to load</div>;
+    }
+
+    if (!imageUrl) {
+        return <div className="w-full h-48 bg-gray-800 animate-pulse"></div>;
+    }
+
+    return <img src={imageUrl} alt="Camera" className="w-full h-48 object-cover" />;
+};
+
+const CameraCard: React.FC<CameraCardProps> = ({ camera, lenses, onEdit, onDelete, onToggleArchive }) => {
+  const attachedLens = camera.attachedLensId ? lenses.find(l => l.id === camera.attachedLensId) : null;
+
   return (
     <div className="bg-brand-dark rounded-lg overflow-hidden shadow-lg transition-transform transform hover:-translate-y-1 hover:shadow-2xl flex flex-col group">
       <div className="relative">
-        {camera.images && camera.images.length > 0 && (
-          <img
-            src={`data:image/jpeg;base64,${camera.images[0]}`}
-            alt={`${camera.brand} ${camera.model}`}
-            className="w-full h-48 object-cover"
-          />
+        {camera.images && camera.images.length > 0 ? (
+          <ImageLoader fileId={camera.images[0]} />
+        ) : (
+          <div className="w-full h-48 bg-gray-800 flex items-center justify-center text-gray-500">No Image</div>
         )}
-        <button 
-          onClick={onEdit}
-          className="absolute top-2 right-2 bg-black bg-opacity-50 hover:bg-opacity-75 text-white rounded-full p-2 transition-opacity opacity-0 group-hover:opacity-100 z-10"
-          aria-label="Edit camera"
-        >
-          <EditIcon className="w-5 h-5" />
-        </button>
+        <div className="absolute top-2 right-2 flex gap-2">
+            <button
+              onClick={onToggleArchive}
+              className="bg-gray-500 bg-opacity-70 hover:bg-opacity-100 text-white rounded-full p-2 transition-all opacity-0 group-hover:opacity-100 z-10"
+              aria-label={camera.isArchived ? "Unarchive camera" : "Archive camera"}
+            >
+              {camera.isArchived ? <UnarchiveIcon className="w-5 h-5" /> : <ArchiveIcon className="w-5 h-5" />}
+            </button>
+            <button 
+              onClick={onEdit}
+              className="bg-black bg-opacity-50 hover:bg-opacity-75 text-white rounded-full p-2 transition-opacity opacity-0 group-hover:opacity-100 z-10"
+              aria-label="Edit camera"
+            >
+              <EditIcon className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={onDelete}
+              className="bg-red-600 bg-opacity-70 hover:bg-opacity-100 text-white rounded-full p-2 transition-all opacity-0 group-hover:opacity-100 z-10"
+              aria-label="Delete camera"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
+        </div>
       </div>
 
       <div className="p-4 flex flex-col flex-grow">
@@ -55,6 +117,15 @@ const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit }) => {
                 <span className="text-gray-300">{camera.serialNumber}</span>
             </div>}
         </div>
+        
+        {attachedLens && (
+            <div className="mt-4 border-t border-gray-700 pt-3 space-y-1 text-sm">
+                <h4 className="font-semibold text-gray-400">Attached Lens:</h4>
+                <p className="text-gray-300 pl-2">{attachedLens.brand} {attachedLens.model}</p>
+                {(attachedLens.focalLength || attachedLens.aperture) && <p className="text-gray-400 pl-2">{attachedLens.focalLength}{attachedLens.focalLength && attachedLens.aperture && ', '}{attachedLens.aperture}</p>}
+            </div>
+        )}
+
 
         <div className="mt-auto pt-4 space-y-3">
              {camera.notableFeatures && <p className="text-xs text-gray-400 italic">"{camera.notableFeatures}"</p>}

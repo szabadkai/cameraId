@@ -1,5 +1,18 @@
+export interface LensInfo {
+  id: string;
+  images: string[]; // array of Google Drive file IDs
+  brand?: string;
+  model?: string;
+  serialNumber?: string;
+  focalLength?: string; // e.g., "50mm", "24-70mm"
+  aperture?: string;    // e.g., "f/1.8", "f/2.8-4"
+  notes?: string;
+  isArchived?: boolean;
+}
+
 export interface CameraInfo {
-  images: string[]; // array of base64 encoded images
+  id: string;
+  images: string[]; // array of Google Drive file IDs
   brand: string;
   manufacturerUrl?: string;
   model: string;
@@ -13,4 +26,11 @@ export interface CameraInfo {
     title: string;
     url: string;
   }[];
+  isArchived?: boolean;
+  attachedLensId?: string;
+}
+
+export interface Collection {
+  cameras: CameraInfo[];
+  lenses: LensInfo[];
 }
