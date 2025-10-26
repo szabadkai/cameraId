@@ -1,0 +1,7 @@
+{
+  "name": "Camera Collector AI",
+  "description": "An application to manage your collection of cameras and lenses. Use your device's camera to take a picture of your gear, and our AI will identify the model and manufacturing date based on its appearance and serial number.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
